@@ -7,7 +7,7 @@ YELLOW='\033[0;33m'
 NC='\033[0m' # Без цвета
 
 # Текущая версия скрипта
-VERSION="2.0.0"
+VERSION="2.0.1"
 
 # Функция для вывода важного сообщения в рамке из ####
 print_important() {
@@ -165,7 +165,11 @@ elif [ "$ACTION" = "update" ] || [ "$ACTION" = "-u" ]; then
             URL="$URL_BASE/Xray-linux-arm64-v8a.zip"
             ARCHIVE="Xray-linux-arm64-v8a.zip"
             ;;
-        "mips"|"mipsle")
+        "mips")
+            URL="$URL_BASE/Xray-linux-mips32.zip"
+            ARCHIVE="Xray-linux-mips32.zip"
+            ;;
+        "mipsle")
             URL="$URL_BASE/Xray-linux-mips32le.zip"
             ARCHIVE="Xray-linux-mips32le.zip"
             ;;
