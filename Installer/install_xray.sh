@@ -49,7 +49,7 @@ disable_xkeen_update() {
 }
 
 # Определение архитектуры процессора
-ARCH=$(uname -m)
+ARCH=$(opkg print-architecture | grep -vE '(all|_kn)' | awk '{ print $2 }' | cut -d- -f1)
 printf "${GREEN}Определенная архитектура: $ARCH${NC}\n"
 
 # Дополнительная информация о процессоре для проверки
