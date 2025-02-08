@@ -169,7 +169,7 @@ elif [ "$ACTION" = "update" ] || [ "$ACTION" = "-u" ]; then
             URL="$URL_BASE/Xray-linux-mips32.zip"
             ARCHIVE="Xray-linux-mips32.zip"
             ;;
-        "mipsle|mipsel")
+        "mipsle"|"mipsel")
             URL="$URL_BASE/Xray-linux-mips32le.zip"
             ARCHIVE="Xray-linux-mips32le.zip"
             ;;
