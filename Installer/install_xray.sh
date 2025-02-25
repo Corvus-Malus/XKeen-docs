@@ -7,7 +7,7 @@ YELLOW='\033[0;33m'
 NC='\033[0m' # Без цвета
 
 # Текущая версия скрипта
-VERSION="2.0.1"
+VERSION="2.0.2"
 
 # Функция для вывода важного сообщения в рамке из ####
 print_important() {
@@ -23,8 +23,9 @@ printf "${GREEN}Версия скрипта: $VERSION${NC}\n"
 
 # Вывод версии установленного Xray (если существует)
 if [ -x /opt/sbin/xray ]; then
-    CURRENT_XRAY_VERSION=$(/opt/sbin/xray version 2>/dev/null | head -n 1)
-    print_important "Установленная версия Xray: $CURRENT_XRAY_VERSION"
+    FULL_XRAY_VERSION=$(/opt/sbin/xray version 2>/dev/null | head -n 1)
+    CURRENT_XRAY_VERSION=$(echo "$FULL_XRAY_VERSION" | awk '{print $2}')
+    print_important "Установленная версия Xray: $FULL_XRAY_VERSION"
 else
     print_important "Xray не установлен."
 fi
@@ -33,11 +34,12 @@ fi
 show_help() {
     printf "${GREEN}Использование: ${GREEN}./install_xray.sh ${YELLOW}{command}${NC}\n\n"
     printf "${GREEN}Команды:${NC}\n"
-    printf "  ${YELLOW}update|-u [version]${NC} - Обновить Xray. Если версия не указана, появится диалог для выбора релиза.\n"
-    printf "  ${YELLOW}recover|-r${NC}          - Восстановить Xray из резервной копии.\n"
-    printf "  ${YELLOW}task HH:MM day${NC}      - Запланировать обновление Xray. Если day = 8, то задание будет выполнено ежедневно.\n"
-    printf "  ${YELLOW}task 0${NC}              - Удалить запланированное обновление.\n"
-    printf "  ${YELLOW}help|-h${NC}             - Показать это сообщение.\n"
+    printf "  ${YELLOW}update|-u${NC}        - Обновить Xray до последней версии.\n"
+    printf "  ${YELLOW}<без команды>${NC}    - Вывести список последних 10 релизов Xray для выбора.\n"
+    printf "  ${YELLOW}recover|-r${NC}       - Восстановить Xray из резервной копии.\n"
+    printf "  ${YELLOW}task HH:MM day${NC}   - Запланировать обновление Xray. Если day = 8, то задание будет выполнено ежедневно.\n"
+    printf "  ${YELLOW}task 0${NC}           - Удалить запланированное обновление.\n"
+    printf "  ${YELLOW}help|-h${NC}          - Показать это сообщение.\n"
 }
 
 # Функция для отключения обновлений Xkeen
@@ -55,10 +57,14 @@ printf "${GREEN}Определенная архитектура: $ARCH${NC}\n"
 # Дополнительная информация о процессоре для проверки
 lscpu | grep -E 'Architecture|Model name|CPU(s)'
 
-# Если параметр команды не задан, по умолчанию запускаем обновление
+# Определение действия в зависимости от аргумента
 ACTION="$1"
-if [ -z "$ACTION" ]; then
-    ACTION="update"
+VERSION_ARG="$2"
+
+if [ "$ACTION" = "update" ] || [ "$ACTION" = "-u" ]; then
+    ACTION="update" # Явное задание ACTION="update" для обработки далее
+elif [ -z "$ACTION" ]; then
+    ACTION="list_releases" # Если аргумент не указан, действие - вывод списка релизов
 fi
 
 if [ "$ACTION" = "task" ]; then
@@ -111,7 +117,95 @@ if [ "$ACTION" = "task" ]; then
 
     printf "${GREEN}Задача обновления Xray запланирована на $TIME в день $DAY_NAME.${NC}\n"
 
-elif [ "$ACTION" = "update" ] || [ "$ACTION" = "-u" ]; then
+elif [ "$ACTION" = "update" ]; then
+    printf "${GREEN}Обновление Xray до последней версии...${NC}\n"
+
+    URL_BASE="https://github.com/XTLS/Xray-core/releases/latest/download"
+
+    case $ARCH in
+        "aarch64")
+            URL="$URL_BASE/Xray-linux-arm64-v8a.zip"
+            ARCHIVE="Xray-linux-arm64-v8a.zip"
+            ;;
+        "mips")
+            URL="$URL_BASE/Xray-linux-mips32.zip"
+            ARCHIVE="Xray-linux-mips32.zip"
+            ;;
+        "mipsle"|"mipsel")
+            URL="$URL_BASE/Xray-linux-mips32le.zip"
+            ARCHIVE="Xray-linux-mips32le.zip"
+            ;;
+        "mips64")
+            URL="$URL_BASE/Xray-linux-mips64.zip"
+            ARCHIVE="Xray-linux-mips64.zip"
+            ;;
+        "mips64le")
+            URL="$URL_BASE/Xray-linux-mips64le.zip"
+            ARCHIVE="Xray-linux-mips64le.zip"
+            ;;
+        *)
+            printf "${RED}Неизвестная архитектура: $ARCH${NC}\n"
+            exit 1
+            ;;
+    esac
+
+    printf "${GREEN}Остановка xkeen...${NC}\n"
+    xkeen -stop
+
+    # Убеждаемся, что каталог /opt/sbin существует
+    mkdir -p /opt/sbin
+
+    # Создаем каталог для резервных копий
+    BACKUP_DIR="/opt/backups"
+    mkdir -p "$BACKUP_DIR"
+
+    BACKUP_FILE="$BACKUP_DIR/xray_backup_v1.8.4"
+    if [ -f /opt/sbin/xray ]; then
+        if [ ! -f "$BACKUP_FILE" ]; then
+            printf "${GREEN}Архивация существующего файла xray...${NC}\n"
+            mv /opt/sbin/xray "$BACKUP_FILE"
+        else
+            printf "${YELLOW}Резервная копия с именем xray_backup_v1.8.4 уже существует.${NC}\n"
+        fi
+    fi
+
+    # Резервное копирование файла 02_transport.json, если версия Xray 1.8.4
+    if [ "$CURRENT_XRAY_VERSION" = "1.8.4" ]; then
+        printf "${GREEN}Резервное копирование файла 02_transport.json...${NC}\n"
+        if [ -f /opt/etc/xray/configs/02_transport.json ]; then
+            mv /opt/etc/xray/configs/02_transport.json "$BACKUP_DIR/02_transport.json.backup"
+            printf "${GREEN}Резервное копирование файла 02_transport.json прошло успешно.${NC}\n"
+        else
+            printf "${RED}Файл 02_transport.json не найден.${NC}\n"
+        fi
+    fi
+
+    printf "${GREEN}Скачивание $ARCHIVE...${NC}\n"
+    curl -s -S -L -o /tmp/$ARCHIVE $URL
+
+    printf "${GREEN}Извлечение xray из $ARCHIVE...${NC}\n"
+    TEMP_DIR=$(mktemp -d)
+    unzip -j /tmp/$ARCHIVE xray -d $TEMP_DIR
+
+    printf "${GREEN}Перемещение xray в /opt/sbin...${NC}\n"
+    mv $TEMP_DIR/xray /opt/sbin/xray
+
+    printf "${GREEN}Установка прав доступа...${NC}\n"
+    chmod 755 /opt/sbin/xray
+
+    printf "${GREEN}Очистка...${NC}\n"
+    rm -rf $TEMP_DIR
+    rm /tmp/$ARCHIVE
+
+    printf "${GREEN}Запуск xkeen...${NC}\n"
+    xkeen -start
+
+    disable_xkeen_update
+
+    printf "${GREEN}Обновление до последней версии завершено.${NC}\n"
+
+
+elif [ "$ACTION" = "list_releases" ]; then
     VERSION_ARG=$2
 
     # Если версия не указана, запускаем интерактивный диалог выбора релиза
@@ -155,7 +249,7 @@ elif [ "$ACTION" = "update" ] || [ "$ACTION" = "-u" ]; then
 
     case $VERSION_ARG in
         v*) VERSION_PATH="$VERSION_ARG" ;;
-         *) VERSION_PATH="v$VERSION_ARG" ;;
+        *) VERSION_PATH="v$VERSION_ARG" ;;
     esac
 
     URL_BASE="https://github.com/XTLS/Xray-core/releases/download/$VERSION_PATH"
@@ -207,6 +301,17 @@ elif [ "$ACTION" = "update" ] || [ "$ACTION" = "-u" ]; then
         fi
     fi
 
+    # Резервное копирование файла 02_transport.json, если версия Xray 1.8.4
+    if [ "$CURRENT_XRAY_VERSION" = "1.8.4" ]; then
+        printf "${GREEN}Резервное копирование файла 02_transport.json...${NC}\n"
+        if [ -f /opt/etc/xray/configs/02_transport.json ]; then
+            mv /opt/etc/xray/configs/02_transport.json "$BACKUP_DIR/02_transport.json.backup"
+            printf "${GREEN}Резервное копирование файла 02_transport.json прошло успешно.${NC}\n"
+        else
+            printf "${RED}Файл 02_transport.json не найден.${NC}\n"
+        fi
+    fi
+
     printf "${GREEN}Скачивание $ARCHIVE...${NC}\n"
     curl -s -S -L -o /tmp/$ARCHIVE $URL
 
@@ -229,7 +334,8 @@ elif [ "$ACTION" = "update" ] || [ "$ACTION" = "-u" ]; then
 
     disable_xkeen_update
 
-    printf "${GREEN}Обновление завершено.${NC}\n"
+    printf "${GREEN}Обновление до версии ${VERSION_ARG} завершено.${NC}\n"
+
 
 elif [ "$ACTION" = "recover" ] || [ "$ACTION" = "-r" ]; then
     printf "${GREEN}Остановка xkeen...${NC}\n"
@@ -243,6 +349,16 @@ elif [ "$ACTION" = "recover" ] || [ "$ACTION" = "-r" ]; then
     else
         printf "${RED}Резервная копия не найдена. Восстановление невозможно.${NC}\n"
         exit 1
+    fi
+
+    # Восстановление файла 02_transport.json
+    BACKUP_TRANSPORT_FILE="/opt/backups/02_transport.json.backup"
+    if [ -f "$BACKUP_TRANSPORT_FILE" ]; then
+        printf "${GREEN}Восстановление файла 02_transport.json...${NC}\n"
+        mv "$BACKUP_TRANSPORT_FILE" /opt/etc/xray/configs/02_transport.json
+        printf "${GREEN}Восстановление файла 02_transport.json прошло успешно.${NC}\n"
+    else
+        printf "${RED}Резервная копия файла 02_transport.json не найдена.${NC}\n"
     fi
 
     printf "${GREEN}Запуск xkeen...${NC}\n"
